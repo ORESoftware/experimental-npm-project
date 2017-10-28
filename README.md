@@ -9,3 +9,8 @@ Does anyone know if this behavior has been the same since early versions of NPM?
 
 This project is NOT about circular dependencies. It's about dependencies in node_modules being able to
 resolve other dependencies in node_modules with explicitly declaring them. 
+
+## To reproduce
+
+1. run ./create-dirs.js
+2. run ./test.js
