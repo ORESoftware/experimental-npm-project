@@ -1,0 +1,30 @@
+{
+  "name": "experimental-npm-project",
+  "version": "0.0.1",
+  "description": "Experimental npm project for dep resolution experiments etc.",
+  "main": "index.js",
+  "scripts": {
+    "test": "suman"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/ORESoftware/experimental-npm-project.git"
+  },
+  "keywords": [
+    "suman",
+    "testing",
+    "npm",
+    "experimental",
+    "module",
+    "resolution"
+  ],
+  "author": "Olegzandr VD",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/ORESoftware/experimental-npm-project/issues"
+  },
+  "homepage": "https://github.com/ORESoftware/experimental-npm-project#readme",
+  "devDependencies": {
+    "@types/node": "^8.0.47"
+  }
+}
