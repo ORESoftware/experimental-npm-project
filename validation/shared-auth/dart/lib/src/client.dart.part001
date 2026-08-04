@@ -1,0 +1,230 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:http/http.dart' as http;
+
+import 'errors.dart';
+import 'models.dart';
+
+/// A bounded, redirect-free HTTP client for the shared-auth API.
+final class SharedAuthClient {
+  SharedAuthClient(
+    String baseUrl, {
+    http.Client? httpClient,
+    Duration timeout = const Duration(seconds: 10),
+    int maximumResponseBytes = 1024 * 1024,
+    String? serviceCredential,
+  })  : _baseUrl = _normalizeBaseUrl(baseUrl),
+        _http = httpClient ?? http.Client(),
+        _ownsHttpClient = httpClient == null,
+        _timeout = _positiveDuration(timeout),
+        _maximumResponseBytes = _positiveMaximum(maximumResponseBytes),
+        _serviceCredential = _nonEmpty(serviceCredential);
+
+  final String _baseUrl;
+  final http.Client _http;
+  final bool _ownsHttpClient;
+  final Duration _timeout;
+  final int _maximumResponseBytes;
+  String? _serviceCredential;
+
+  /// Configure the service bearer used only for protected introspection.
+  SharedAuthClient withServiceCredential(String credential) {
+    _serviceCredential = _nonEmpty(credential);
+    return this;
+  }
+
+  SharedAuthClient withoutServiceCredential() {
+    _serviceCredential = null;
+    return this;
+  }
+
+  void close() {
+    if (_ownsHttpClient) {
+      _http.close();
+    }
+  }
+
+  Future<ExchangeResponse> exchange(String supabaseToken) =>
+      _requestJson<ExchangeResponse>(
+        'POST',
+        '/auth/exchange',
+        bearer: supabaseToken,
+        decode: ExchangeResponse.fromJson,
+      );
+
+  Future<Introspection> introspect(String token) =>
+      _requestJson<Introspection>(
+        'POST',
+        '/auth/introspect',
+        bearer: _serviceCredential,
+        body: <String, Object?>{'token': token},
+        decode: Introspection.fromJson,
+      );
+
+  Future<bool> verify(String token) async {
+    const path = '/auth/verify';
+    final response = await _request('GET', path, bearer: token);
+    switch (response.statusCode) {
+      case 200:
+        return true;
+      case 401:
+        return false;
+      default:
+        throw SharedAuthStatusException(path, response.statusCode);
+    }
+  }
+
+  Future<Jwks> jwks() => _requestJson<Jwks>(
+        'GET',
+        '/.well-known/jwks.json',
+        decode: Jwks.fromJson,
+      );
+
+  Future<Capabilities> capabilities() => _requestJson<Capabilities>(
+        'GET',
+        '/auth/capabilities',
+        decode: Capabilities.fromJson,
+      );
+
+  Future<List<Factor>> factors(String accessToken) async {
+    const path = '/auth/factors';
+    final json = await _requestJsonValue('GET', path, bearer: accessToken);
+    if (json is! List<Object?>) {
+      throw const SharedAuthDecodeException(
+        path,
+        FormatException('expected an array'),
+      );
+    }
+    try {
+      return List<Factor>.unmodifiable(
+        json.map((Object? item) => Factor.fromJson(_asObject(item))),
+      );
+    } on SharedAuthClientException {
+      rethrow;
+    } on Object catch (error) {
+      throw SharedAuthDecodeException(path, error);
+    }
+  }
+
+  Future<TotpEnrollment> enrollTotp(
+    String accessToken, {
+    String? label,
+  }) =>
+      _requestJson<TotpEnrollment>(
+        'POST',
+        '/auth/factors/totp/enroll',
+        bearer: accessToken,
+        body: <String, Object?>{
+          if (label != null && label.trim().isNotEmpty)
+            'label': label.trim(),
+        },
+        decode: TotpEnrollment.fromJson,
+      );
+
+  Future<StepUpResponse> confirmTotp(
+    String accessToken, {
+    required String factorId,
+    required String code,
+  }) =>
+      _requestJson<StepUpResponse>(
+        'POST',
+        '/auth/factors/totp/confirm',
+        bearer: accessToken,
+        body: <String, Object?>{'factor_id': factorId, 'code': code},
+        decode: StepUpResponse.fromJson,
+      );
+
+  Future<void> deleteFactor(String accessToken, String factorId) async {
+    final path = '/auth/factors/${Uri.encodeComponent(factorId)}';
+    final response = await _request('DELETE', path, bearer: accessToken);
+    _requireSuccess(path, response.statusCode);
+  }
+
+  Future<ChallengeStart> createChallenge(
+    String accessToken,
+    ChallengeKind kind,
+  ) =>
+      _requestJson<ChallengeStart>(
+        'POST',
+        '/auth/challenges',
+        bearer: accessToken,
+        body: <String, Object?>{'kind': kind.wireValue},
+        decode: ChallengeStart.fromJson,
+      );
+
+  Future<StepUpResponse> verifyChallenge(
+    String accessToken, {
+    required String challengeId,
+    required String code,
+  }) {
+    final path =
+        '/auth/challenges/${Uri.encodeComponent(challengeId)}/verify';
+    return _requestJson<StepUpResponse>(
+      'POST',
+      path,
+      bearer: accessToken,
+      body: <String, Object?>{'code': code},
+      decode: StepUpResponse.fromJson,
+    );
+  }
+
+  Future<CeremonyStart> startPasskeyRegistration(
+    String accessToken, {
+    String? label,
+  }) =>
+      _requestJson<CeremonyStart>(
+        'POST',
+        '/auth/passkeys/registration/options',
+        bearer: accessToken,
+        body: <String, Object?>{
+          if (label != null && label.trim().isNotEmpty)
+            'label': label.trim(),
+        },
+        decode: CeremonyStart.fromJson,
+      );
+
+  Future<Factor> finishPasskeyRegistration(
+    String accessToken, {
+    required String challengeId,
+    required Object credential,
+    String? label,
+  }) =>
+      _requestJson<Factor>(
+        'POST',
+        '/auth/passkeys/registration/verify',
+        bearer: accessToken,
+        body: <String, Object?>{
+          'challenge_id': challengeId,
+          'credential': credential,
+          if (label != null && label.trim().isNotEmpty)
+            'label': label.trim(),
+        },
+        decode: Factor.fromJson,
+      );
+
+  Future<CeremonyStart> startPasskeyAuthentication(String accessToken) =>
+      _requestJson<CeremonyStart>(
+        'POST',
+        '/auth/passkeys/authentication/options',
+        bearer: accessToken,
+        body: const <String, Object?>{},
+        decode: CeremonyStart.fromJson,
+      );
+
+  Future<StepUpResponse> finishPasskeyAuthentication(
+    String accessToken, {
+    required String challengeId,
+    required Object credential,
+  }) =>
+      _requestJson<StepUpResponse>(
+        'POST',
+        '/auth/passkeys/authentication/verify',
+        bearer: accessToken,
+        body: <String, Object?>{
+          'challenge_id': challengeId,
+          'credential': credential,
+        },
+        decode: StepUpResponse.fromJson,
+      );
