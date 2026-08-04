@@ -1,0 +1,1 @@
+-record(invalid_response, {error :: gleam@json:decode_error()}).

@@ -1,0 +1,8 @@
+/home/runner/work/experimental-npm-project/experimental-npm-project/validation/shared-auth/rust/target/debug/deps/synstructure-ca5354d8075e9d58.d: /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/synstructure-0.13.2/src/lib.rs /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/synstructure-0.13.2/src/macros.rs
+
+/home/runner/work/experimental-npm-project/experimental-npm-project/validation/shared-auth/rust/target/debug/deps/libsynstructure-ca5354d8075e9d58.rlib: /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/synstructure-0.13.2/src/lib.rs /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/synstructure-0.13.2/src/macros.rs
+
+/home/runner/work/experimental-npm-project/experimental-npm-project/validation/shared-auth/rust/target/debug/deps/libsynstructure-ca5354d8075e9d58.rmeta: /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/synstructure-0.13.2/src/lib.rs /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/synstructure-0.13.2/src/macros.rs
+
+/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/synstructure-0.13.2/src/lib.rs:
+/home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/synstructure-0.13.2/src/macros.rs:

@@ -43,7 +43,9 @@ pub type Introspection {
   )
 }
 
-pub type Jwks { Jwks(keys: List(Dynamic)) }
+pub type Jwks {
+  Jwks(keys: List(Dynamic))
+}
 
 pub type Capabilities {
   Capabilities(
@@ -75,7 +77,10 @@ pub type TotpEnrollment {
   )
 }
 
-pub type ChallengeKind { EmailOtp SmsOtp }
+pub type ChallengeKind {
+  EmailOtp
+  SmsOtp
+}
 
 pub type ChallengeStart {
   ChallengeStart(challenge_id: String, expires_at: String, delivery: String)
@@ -86,7 +91,10 @@ pub type CeremonyStart {
 }
 
 pub fn challenge_kind_to_string(kind: ChallengeKind) -> String {
-  case kind { EmailOtp -> "email_otp" SmsOtp -> "sms_otp" }
+  case kind {
+    EmailOtp -> "email_otp"
+    SmsOtp -> "sms_otp"
+  }
 }
 
 pub fn has_assurance(value: Introspection, required_acr: String) -> Bool {
@@ -106,10 +114,30 @@ pub fn exchange_response_decoder() -> decode.Decoder(ExchangeResponse) {
   use token_type <- decode.field("token_type", decode.string)
   use expires_at <- decode.field("expires_at", decode.int)
   use shared_user_id <- decode.field("shared_user_id", decode.string)
-  use project <- decode.optional_field("project", None, decode.optional(decode.string))
-  use provider <- decode.optional_field("provider", None, decode.optional(decode.string))
-  use provider_tenant <- decode.optional_field("provider_tenant", None, decode.optional(decode.string))
-  decode.success(ExchangeResponse(access_token, token_type, expires_at, shared_user_id, project, provider, provider_tenant))
+  use project <- decode.optional_field(
+    "project",
+    None,
+    decode.optional(decode.string),
+  )
+  use provider <- decode.optional_field(
+    "provider",
+    None,
+    decode.optional(decode.string),
+  )
+  use provider_tenant <- decode.optional_field(
+    "provider_tenant",
+    None,
+    decode.optional(decode.string),
+  )
+  decode.success(ExchangeResponse(
+    access_token,
+    token_type,
+    expires_at,
+    shared_user_id,
+    project,
+    provider,
+    provider_tenant,
+  ))
 }
 
 pub fn step_up_response_decoder() -> decode.Decoder(StepUpResponse) {
@@ -125,17 +153,55 @@ pub fn introspection_decoder() -> decode.Decoder(Introspection) {
   use active <- decode.field("active", decode.bool)
   use sub <- decode.optional_field("sub", None, decode.optional(decode.string))
   use sid <- decode.optional_field("sid", None, decode.optional(decode.string))
-  use project <- decode.optional_field("project", None, decode.optional(decode.string))
-  use provider <- decode.optional_field("provider", None, decode.optional(decode.string))
-  use provider_tenant <- decode.optional_field("provider_tenant", None, decode.optional(decode.string))
-  use provider_subject <- decode.optional_field("provider_subject", None, decode.optional(decode.string))
-  use email <- decode.optional_field("email", None, decode.optional(decode.string))
-  use email_verified <- decode.optional_field("email_verified", None, decode.optional(decode.bool))
+  use project <- decode.optional_field(
+    "project",
+    None,
+    decode.optional(decode.string),
+  )
+  use provider <- decode.optional_field(
+    "provider",
+    None,
+    decode.optional(decode.string),
+  )
+  use provider_tenant <- decode.optional_field(
+    "provider_tenant",
+    None,
+    decode.optional(decode.string),
+  )
+  use provider_subject <- decode.optional_field(
+    "provider_subject",
+    None,
+    decode.optional(decode.string),
+  )
+  use email <- decode.optional_field(
+    "email",
+    None,
+    decode.optional(decode.string),
+  )
+  use email_verified <- decode.optional_field(
+    "email_verified",
+    None,
+    decode.optional(decode.bool),
+  )
   use roles <- decode.optional_field("roles", [], decode.list(decode.string))
   use amr <- decode.optional_field("amr", [], decode.list(decode.string))
   use acr <- decode.optional_field("acr", None, decode.optional(decode.string))
   use exp <- decode.optional_field("exp", None, decode.optional(decode.int))
-  decode.success(Introspection(active, sub, sid, project, provider, provider_tenant, provider_subject, email, email_verified, roles, amr, acr, exp))
+  decode.success(Introspection(
+    active,
+    sub,
+    sid,
+    project,
+    provider,
+    provider_tenant,
+    provider_subject,
+    email,
+    email_verified,
+    roles,
+    amr,
+    acr,
+    exp,
+  ))
 }
 
 pub fn jwks_decoder() -> decode.Decoder(Jwks) {
@@ -145,21 +211,58 @@ pub fn jwks_decoder() -> decode.Decoder(Jwks) {
 
 pub fn capabilities_decoder() -> decode.Decoder(Capabilities) {
   use mfa_enabled <- decode.field("mfa_enabled", decode.bool)
-  use methods <- decode.optional_field("methods", [], decode.list(decode.string))
-  use threefa_import_scheme <- decode.optional_field("threefa_import_scheme", None, decode.optional(decode.string))
-  use biometric_model <- decode.optional_field("biometric_model", None, decode.optional(decode.string))
-  decode.success(Capabilities(mfa_enabled, methods, threefa_import_scheme, biometric_model))
+  use methods <- decode.optional_field(
+    "methods",
+    [],
+    decode.list(decode.string),
+  )
+  use threefa_import_scheme <- decode.optional_field(
+    "threefa_import_scheme",
+    None,
+    decode.optional(decode.string),
+  )
+  use biometric_model <- decode.optional_field(
+    "biometric_model",
+    None,
+    decode.optional(decode.string),
+  )
+  decode.success(Capabilities(
+    mfa_enabled,
+    methods,
+    threefa_import_scheme,
+    biometric_model,
+  ))
 }
 
 pub fn factor_decoder() -> decode.Decoder(Factor) {
   use factor_id <- decode.field("factor_id", decode.string)
   use kind <- decode.field("kind", decode.string)
-  use label <- decode.optional_field("label", None, decode.optional(decode.string))
+  use label <- decode.optional_field(
+    "label",
+    None,
+    decode.optional(decode.string),
+  )
   use enabled <- decode.field("enabled", decode.bool)
-  use confirmed_at <- decode.optional_field("confirmed_at", None, decode.optional(decode.string))
-  use last_used_at <- decode.optional_field("last_used_at", None, decode.optional(decode.string))
+  use confirmed_at <- decode.optional_field(
+    "confirmed_at",
+    None,
+    decode.optional(decode.string),
+  )
+  use last_used_at <- decode.optional_field(
+    "last_used_at",
+    None,
+    decode.optional(decode.string),
+  )
   use created_at <- decode.field("created_at", decode.string)
-  decode.success(Factor(factor_id, kind, label, enabled, confirmed_at, last_used_at, created_at))
+  decode.success(Factor(
+    factor_id,
+    kind,
+    label,
+    enabled,
+    confirmed_at,
+    last_used_at,
+    created_at,
+  ))
 }
 
 pub fn totp_enrollment_decoder() -> decode.Decoder(TotpEnrollment) {
@@ -167,7 +270,12 @@ pub fn totp_enrollment_decoder() -> decode.Decoder(TotpEnrollment) {
   use secret_base32 <- decode.field("secret_base32", decode.string)
   use otpauth_uri <- decode.field("otpauth_uri", decode.string)
   use threefa_import_uri <- decode.field("threefa_import_uri", decode.string)
-  decode.success(TotpEnrollment(factor_id, secret_base32, otpauth_uri, threefa_import_uri))
+  decode.success(TotpEnrollment(
+    factor_id,
+    secret_base32,
+    otpauth_uri,
+    threefa_import_uri,
+  ))
 }
 
 pub fn challenge_start_decoder() -> decode.Decoder(ChallengeStart) {

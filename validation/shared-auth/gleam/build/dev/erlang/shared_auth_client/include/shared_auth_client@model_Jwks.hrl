@@ -1,0 +1,1 @@
+-record(jwks, {keys :: list(gleam@dynamic:dynamic_())}).

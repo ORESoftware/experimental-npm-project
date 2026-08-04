@@ -57,3 +57,13 @@ final class SharedAuthDecodeException extends SharedAuthClientException {
   String toString() =>
       'SharedAuthClientException: invalid response contract at $path';
 }
+
+/// Protected introspection was called without its service credential.
+final class MissingServiceCredentialException
+    extends SharedAuthClientException {
+  const MissingServiceCredentialException() : super('/auth/introspect');
+
+  @override
+  String toString() =>
+      'SharedAuthClientException: introspection service credential is required';
+}

@@ -1,0 +1,1 @@
+-record(transport_error, {error :: gleam@httpc:http_error()}).
