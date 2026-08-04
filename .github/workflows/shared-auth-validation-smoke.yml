@@ -1,0 +1,25 @@
+name: Shared Auth validation smoke
+
+on:
+  push:
+    branches:
+      - agent/shared-auth-language-parity-validation
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: |
+          set -euo pipefail
+          node --version
+          python3 --version
+          echo validation-runner-ready
