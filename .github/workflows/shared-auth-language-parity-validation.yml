@@ -39,7 +39,9 @@ jobs:
           rebar3-version: '3'
 
       - name: Generate resolved sources and focused tests
-        run: python3 validation/shared-auth/generate_parity.py
+        run: |
+          python3 validation/shared-auth/generate_parity.py
+          python3 validation/shared-auth/fix_dart_test.py
 
       - name: Validate Rust client
         working-directory: validation/shared-auth/rust
