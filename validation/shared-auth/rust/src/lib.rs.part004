@@ -1,0 +1,111 @@
+        let endpoint = client
+            .endpoint(&["auth", "factors", "factor/one%two"])
+            .unwrap();
+        assert_eq!(
+            endpoint.as_str(),
+            "https://gw.example/shared-auth/auth/factors/factor%2Fone%25two"
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_and_remote_plaintext_base_urls_fail_before_transport() {
+        for base in [
+            "relative/path",
+            "ftp://gw.example/shared-auth",
+            "http://gw.example/shared-auth",
+            "https://user:secret@gw.example/shared-auth",
+            "https://gw.example/shared-auth?tenant=one",
+        ] {
+            let error = SharedAuthClient::new(base).jwks().await.unwrap_err();
+            assert!(matches!(error, ClientError::InvalidBaseUrl), "{base}");
+        }
+    }
+
+    #[test]
+    fn assurance_checks_fail_closed() {
+        let inactive = Introspection {
+            active: false,
+            sub: None,
+            sid: None,
+            project: None,
+            provider: None,
+            provider_tenant: None,
+            provider_subject: None,
+            email: None,
+            email_verified: None,
+            roles: vec!["admin".into()],
+            amr: vec!["passkey".into()],
+            acr: Some("urn:oresoftware:loa:2".into()),
+            exp: None,
+            rest: Default::default(),
+        };
+        assert!(!inactive.has_acr("urn:oresoftware:loa:2"));
+        assert!(!inactive.used_method("passkey"));
+        assert!(!inactive.has_role("admin"));
+    }
+
+    #[tokio::test]
+    async fn malformed_credentials_fail_before_transport() {
+        let client = SharedAuthClient::new("http://127.0.0.1:1");
+        let error = client.exchange(" token ").await.unwrap_err();
+        assert!(matches!(error, ClientError::InvalidInput("Supabase token")));
+
+        let error = client
+            .clone()
+            .with_service_credential("secret\nheader")
+            .introspect("token")
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            ClientError::InvalidInput("service credential")
+        ));
+    }
+
+    #[tokio::test]
+    async fn request_bodies_are_bounded_before_transport() {
+        let client = SharedAuthClient::new("http://127.0.0.1:1").with_max_request_bytes(32);
+        let credential = serde_json::json!({ "padding": "x".repeat(128) });
+        let error = client
+            .finish_passkey_authentication("token", "challenge", &credential)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ClientError::RequestTooLarge { limit: 32 }));
+    }
+
+    #[tokio::test]
+    async fn response_bodies_are_bounded_before_decode() {
+        let body =
+            br#"{"padding":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}"#;
+        let base = spawn_single_response(body);
+        let client = SharedAuthClient::new(base).with_max_response_bytes(16);
+        let error = client.jwks().await.unwrap_err();
+        assert!(matches!(error, ClientError::ResponseTooLarge { limit: 16 }));
+    }
+
+    #[tokio::test]
+    async fn transport_display_is_redacted() {
+        let client = SharedAuthClient::new("http://127.0.0.1:1");
+        let error = client.exchange("token").await.unwrap_err();
+        assert!(matches!(error, ClientError::Transport(_)));
+        assert_eq!(error.to_string(), "transport failed");
+    }
+
+    fn spawn_single_response(body: &'static [u8]) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 2048];
+            let _ = stream.read(&mut request);
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            stream.write_all(body).unwrap();
+        });
+        format!("http://{address}")
+    }
+}
