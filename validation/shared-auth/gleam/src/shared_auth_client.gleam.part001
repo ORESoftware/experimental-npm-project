@@ -1,0 +1,250 @@
+//// Thin, typed Gleam client for the shared-auth HTTP API.
+////
+//// Guard orchestration, the dual-auth race, and limited HTML remain in
+//// shared-auth-lib. This module implements transport verbs only.
+
+import gleam/dynamic/decode
+import gleam/http
+import gleam/http/request.{type Request}
+import gleam/http/response.{type Response}
+import gleam/httpc
+import gleam/json
+import gleam/list
+import gleam/option.{type Option, None, Some}
+import gleam/result
+import gleam/string
+import gleam/uri
+import shared_auth_client/model.{
+  type Capabilities,
+  type CeremonyStart,
+  type ChallengeKind,
+  type ChallengeStart,
+  type ExchangeResponse,
+  type Factor,
+  type Introspection,
+  type Jwks,
+  type StepUpResponse,
+  type TotpEnrollment,
+}
+
+pub type ClientError {
+  Unauthorized
+  UnexpectedStatus(status: Int)
+  InvalidUrl
+  InvalidTimeout
+  InvalidResponse(error: json.DecodeError)
+  TransportError(error: httpc.HttpError)
+}
+
+/// Injectable transport used for deterministic tests and alternate runtimes.
+pub type Transport =
+  fn(Request(String), Int) -> Result(Response(String), httpc.HttpError)
+
+pub opaque type Client {
+  Client(
+    base: String,
+    service_credential: Option(String),
+    timeout_ms: Int,
+    transport: Transport,
+  )
+}
+
+/// Construct a client with TLS verification, redirects disabled, and a
+/// ten-second response deadline.
+pub fn new(base: String) -> Result(Client, ClientError) {
+  let base = normalize_base(base)
+  case request.to(base <> "/healthz") {
+    Ok(_) ->
+      Ok(Client(
+        base: base,
+        service_credential: None,
+        timeout_ms: 10_000,
+        transport: default_transport,
+      ))
+    Error(_) -> Error(InvalidUrl)
+  }
+}
+
+/// Attach the service bearer used only by protected introspection.
+pub fn with_service_credential(client: Client, credential: String) -> Client {
+  Client(
+    ..client,
+    service_credential: credential |> string.trim |> string.to_option,
+  )
+}
+
+pub fn without_service_credential(client: Client) -> Client {
+  Client(..client, service_credential: None)
+}
+
+pub fn with_timeout(
+  client: Client,
+  timeout_ms: Int,
+) -> Result(Client, ClientError) {
+  case timeout_ms > 0 {
+    True -> Ok(Client(..client, timeout_ms: timeout_ms))
+    False -> Error(InvalidTimeout)
+  }
+}
+
+pub fn with_transport(client: Client, transport: Transport) -> Client {
+  Client(..client, transport: transport)
+}
+
+pub fn has_assurance(value: Introspection, required_acr: String) -> Bool {
+  model.has_assurance(value, required_acr)
+}
+
+pub fn used_method(value: Introspection, method: String) -> Bool {
+  model.used_method(value, method)
+}
+
+pub fn has_role(value: Introspection, role: String) -> Bool {
+  model.has_role(value, role)
+}
+
+/// Supabase access token to shared-auth access token.
+pub fn exchange(
+  client: Client,
+  supabase_token: String,
+) -> Result(ExchangeResponse, ClientError) {
+  request_json(
+    client,
+    http.Post,
+    "/auth/exchange",
+    Some(supabase_token),
+    None,
+    model.exchange_response_decoder(),
+  )
+}
+
+/// RFC-7662-shaped protected introspection.
+pub fn introspect(
+  client: Client,
+  token: String,
+) -> Result(Introspection, ClientError) {
+  request_json(
+    client,
+    http.Post,
+    "/auth/introspect",
+    client.service_credential,
+    Some(json.object([#("token", json.string(token))])),
+    model.introspection_decoder(),
+  )
+}
+
+/// Lightweight bearer verification for gateway auth_request integrations.
+pub fn verify(client: Client, token: String) -> Result(Bool, ClientError) {
+  use req <- result.try(build_request(
+    client,
+    http.Get,
+    "/auth/verify",
+    Some(token),
+    None,
+  ))
+  use response <- result.try(send(client, req))
+  case response.status {
+    200 -> Ok(True)
+    401 -> Ok(False)
+    status -> Error(UnexpectedStatus(status))
+  }
+}
+
+pub fn jwks(client: Client) -> Result(Jwks, ClientError) {
+  request_json(
+    client,
+    http.Get,
+    "/.well-known/jwks.json",
+    None,
+    None,
+    model.jwks_decoder(),
+  )
+}
+
+pub fn capabilities(client: Client) -> Result(Capabilities, ClientError) {
+  request_json(
+    client,
+    http.Get,
+    "/auth/capabilities",
+    None,
+    None,
+    model.capabilities_decoder(),
+  )
+}
+
+pub fn factors(
+  client: Client,
+  access_token: String,
+) -> Result(List(Factor), ClientError) {
+  request_json(
+    client,
+    http.Get,
+    "/auth/factors",
+    Some(access_token),
+    None,
+    decode.list(model.factor_decoder()),
+  )
+}
+
+pub fn enroll_totp(
+  client: Client,
+  access_token: String,
+  label: Option(String),
+) -> Result(TotpEnrollment, ClientError) {
+  request_json(
+    client,
+    http.Post,
+    "/auth/factors/totp/enroll",
+    Some(access_token),
+    Some(json.object(optional_string_field("label", label))),
+    model.totp_enrollment_decoder(),
+  )
+}
+
+pub fn confirm_totp(
+  client: Client,
+  access_token: String,
+  factor_id: String,
+  code: String,
+) -> Result(StepUpResponse, ClientError) {
+  request_json(
+    client,
+    http.Post,
+    "/auth/factors/totp/confirm",
+    Some(access_token),
+    Some(json.object([
+      #("factor_id", json.string(factor_id)),
+      #("code", json.string(code)),
+    ])),
+    model.step_up_response_decoder(),
+  )
+}
+
+pub fn delete_factor(
+  client: Client,
+  access_token: String,
+  factor_id: String,
+) -> Result(Nil, ClientError) {
+  let path = "/auth/factors/" <> uri.percent_encode(factor_id)
+  request_empty(client, http.Delete, path, Some(access_token), None)
+}
+
+pub fn create_challenge(
+  client: Client,
+  access_token: String,
+  kind: ChallengeKind,
+) -> Result(ChallengeStart, ClientError) {
+  request_json(
+    client,
+    http.Post,
+    "/auth/challenges",
+    Some(access_token),
+    Some(json.object([
+      #("kind", kind |> model.challenge_kind_to_string |> json.string),
+    ])),
+    model.challenge_start_decoder(),
+  )
+}
+
+pub fn verify_challenge(
+  client: Client,
