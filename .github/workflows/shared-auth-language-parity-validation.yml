@@ -1,0 +1,88 @@
+name: Shared Auth four-language parity validation
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: shared-auth-language-parity-validation
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.head_ref == 'agent/shared-auth-language-parity-validation' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/shared-auth-language-parity-validation
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1.7.2
+        with:
+          sdk: stable
+      - uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
+        with:
+          otp-version: '27'
+          gleam-version: '1.17.0'
+          rebar3-version: '3'
+
+      - name: Generate resolved sources and focused tests
+        run: python3 validation/shared-auth/generate_parity.py
+
+      - name: Validate Rust client
+        working-directory: validation/shared-auth/rust
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          cargo fmt --all --check
+          cargo clippy --all-targets --all-features -- -D warnings
+          cargo test --all-features
+
+      - name: Validate TypeScript client
+        working-directory: validation/shared-auth/ts
+        run: |
+          set -euo pipefail
+          npm install --ignore-scripts --no-audit --no-fund
+          npm run check
+          npm test
+
+      - name: Validate Dart client
+        working-directory: validation/shared-auth/dart
+        run: |
+          set -euo pipefail
+          dart pub get
+          dart format .
+          dart format --output=none --set-exit-if-changed .
+          dart analyze
+          dart test
+
+      - name: Validate Gleam client
+        working-directory: validation/shared-auth/gleam
+        run: |
+          set -euo pipefail
+          gleam deps download
+          gleam format
+          gleam check
+          gleam test
+
+      - name: Preserve exact validated outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add validation/shared-auth
+          git commit -m 'test: validate shared-auth four-language parity'
+          git push origin HEAD:agent/shared-auth-language-parity-validation
