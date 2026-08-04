@@ -1,0 +1,270 @@
+    );
+    this.serviceCredential = normalizeOptionalCredential(
+      options.serviceCredential,
+      "serviceCredential",
+    );
+  }
+
+  /** Configure the service-to-service bearer required by protected introspection. */
+  withServiceCredential(credential: string): this {
+    this.serviceCredential = requiredCredential(
+      credential,
+      "serviceCredential",
+    );
+    return this;
+  }
+
+  withoutServiceCredential(): this {
+    this.serviceCredential = undefined;
+    return this;
+  }
+
+  /** Supabase access token → shared-auth token. Throws UnauthorizedError on 401. */
+  async exchange(supabaseToken: string): Promise<ExchangeResponse> {
+    return this.requestJson<ExchangeResponse>("/auth/exchange", {
+      method: "POST",
+      headers: {
+        authorization: bearer(supabaseToken, "supabaseToken"),
+      },
+    });
+  }
+
+  /** RFC-7662-shaped introspection, authenticated when a service credential is set. */
+  async introspect(token: string): Promise<Introspection> {
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+    };
+    if (this.serviceCredential) {
+      headers.authorization = `Bearer ${this.serviceCredential}`;
+    }
+    return this.requestJson<Introspection>("/auth/introspect", {
+      method: "POST",
+      headers,
+      body: encodeJson({ token: requiredCredential(token, "token") }),
+    });
+  }
+
+  /** Lightweight bearer check: true (200) / false (401). */
+  async verify(token: string): Promise<boolean> {
+    const path = "/auth/verify";
+    return this.withDeadline(path, async (signal) => {
+      const resp = await this.fetchResponse(path, {
+        headers: { authorization: bearer(token, "token") },
+        signal,
+      });
+      if (resp.status === 200) return true;
+      if (resp.status === 401) return false;
+      throw new SharedAuthHttpError(path, resp.status);
+    });
+  }
+
+  /** The server's public JWKS. */
+  jwks(): Promise<{ keys: unknown[] }> {
+    return this.requestJson<{ keys: unknown[] }>("/.well-known/jwks.json");
+  }
+
+  capabilities(): Promise<Capabilities> {
+    return this.requestJson<Capabilities>("/auth/capabilities");
+  }
+
+  factors(accessToken: string): Promise<Factor[]> {
+    return this.authedJson<Factor[]>("/auth/factors", accessToken);
+  }
+
+  enrollTotp(
+    accessToken: string,
+    label?: string,
+  ): Promise<TotpEnrollment> {
+    return this.authedJson<TotpEnrollment>(
+      "/auth/factors/totp/enroll",
+      accessToken,
+      "POST",
+      { label },
+    );
+  }
+
+  confirmTotp(
+    accessToken: string,
+    factorId: string,
+    code: string,
+  ): Promise<StepUpResponse> {
+    return this.authedJson<StepUpResponse>(
+      "/auth/factors/totp/confirm",
+      accessToken,
+      "POST",
+      {
+        factor_id: requiredField(factorId, "factorId"),
+        code: requiredField(code, "code"),
+      },
+    );
+  }
+
+  async deleteFactor(accessToken: string, factorId: string): Promise<void> {
+    const encodedFactorId = encodeURIComponent(
+      requiredField(factorId, "factorId"),
+    );
+    await this.requestJson<unknown>(
+      `/auth/factors/${encodedFactorId}`,
+      {
+        method: "DELETE",
+        headers: { authorization: bearer(accessToken, "accessToken") },
+      },
+      true,
+    );
+  }
+
+  createChallenge(
+    accessToken: string,
+    kind: ChallengeKind,
+  ): Promise<ChallengeStart> {
+    if (kind !== "email_otp" && kind !== "sms_otp") {
+      throw new TypeError("kind must be email_otp or sms_otp");
+    }
+    return this.authedJson<ChallengeStart>(
+      "/auth/challenges",
+      accessToken,
+      "POST",
+      { kind },
+    );
+  }
+
+  verifyChallenge(
+    accessToken: string,
+    challengeId: string,
+    code: string,
+  ): Promise<StepUpResponse> {
+    const encodedChallengeId = encodeURIComponent(
+      requiredField(challengeId, "challengeId"),
+    );
+    return this.authedJson<StepUpResponse>(
+      `/auth/challenges/${encodedChallengeId}/verify`,
+      accessToken,
+      "POST",
+      { code: requiredField(code, "code") },
+    );
+  }
+
+  startPasskeyRegistration(
+    accessToken: string,
+    label?: string,
+  ): Promise<CeremonyStart> {
+    return this.authedJson<CeremonyStart>(
+      "/auth/passkeys/registration/options",
+      accessToken,
+      "POST",
+      { label },
+    );
+  }
+
+  finishPasskeyRegistration(
+    accessToken: string,
+    challengeId: string,
+    credential: unknown,
+    label?: string,
+  ): Promise<Factor> {
+    return this.authedJson<Factor>(
+      "/auth/passkeys/registration/verify",
+      accessToken,
+      "POST",
+      {
+        challenge_id: requiredField(challengeId, "challengeId"),
+        credential,
+        label,
+      },
+    );
+  }
+
+  startPasskeyAuthentication(accessToken: string): Promise<CeremonyStart> {
+    return this.authedJson<CeremonyStart>(
+      "/auth/passkeys/authentication/options",
+      accessToken,
+      "POST",
+      {},
+    );
+  }
+
+  finishPasskeyAuthentication(
+    accessToken: string,
+    challengeId: string,
+    credential: unknown,
+  ): Promise<StepUpResponse> {
+    return this.authedJson<StepUpResponse>(
+      "/auth/passkeys/authentication/verify",
+      accessToken,
+      "POST",
+      {
+        challenge_id: requiredField(challengeId, "challengeId"),
+        credential,
+      },
+    );
+  }
+
+  private authedJson<T>(
+    path: string,
+    accessToken: string,
+    method: "GET" | "POST" = "GET",
+    body?: unknown,
+  ): Promise<T> {
+    const headers: Record<string, string> = {
+      authorization: bearer(accessToken, "accessToken"),
+    };
+    if (body !== undefined) headers["content-type"] = "application/json";
+    return this.requestJson<T>(path, {
+      method,
+      headers,
+      body: body === undefined ? undefined : encodeJson(body),
+    });
+  }
+
+  private async requestJson<T>(
+    path: string,
+    init: RequestInit = {},
+    allowEmpty = false,
+  ): Promise<T> {
+    return this.withDeadline(path, async (signal) => {
+      const resp = await this.fetchResponse(path, { ...init, signal });
+      if (resp.status === 401) throw new UnauthorizedError();
+      if (!resp.ok) throw new SharedAuthHttpError(path, resp.status);
+      if (allowEmpty || resp.status === 204) return undefined as T;
+      return this.readJson<T>(path, resp);
+    });
+  }
+
+  private async fetchResponse(
+    path: string,
+    init: RequestInit,
+  ): Promise<Response> {
+    this.assertRequestBodySize(path, init.body);
+    const headers = new Headers(init.headers);
+    if (!headers.has("accept")) headers.set("accept", "application/json");
+
+    try {
+      return await this.doFetch(`${this.base}${path}`, {
+        ...init,
+        headers,
+        credentials: "omit",
+        redirect: "error",
+        referrerPolicy: "no-referrer",
+      });
+    } catch (error) {
+      if (init.signal?.aborted) throw error;
+      throw new SharedAuthTransportError(path);
+    }
+  }
+
+  private assertRequestBodySize(
+    path: string,
+    body: BodyInit | null | undefined,
+  ): void {
+    if (typeof body !== "string") return;
+    if (utf8Length(body) > this.maxRequestBytes) {
+      throw new SharedAuthRequestTooLargeError(path, this.maxRequestBytes);
+    }
+  }
+
+  private async withDeadline<T>(
+    path: string,
+    operation: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
