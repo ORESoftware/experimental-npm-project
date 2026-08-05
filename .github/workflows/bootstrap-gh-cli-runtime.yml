@@ -1,0 +1,41 @@
+name: Bootstrap GitHub CLI runtime
+
+on:
+  push:
+    branches:
+      - agent/bootstrap-gh-cli-runtime-20260805
+  pull_request:
+    branches:
+      - master
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap-gh-cli-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    if: github.head_ref == 'agent/bootstrap-gh-cli-runtime-20260805' || github.ref_name == 'agent/bootstrap-gh-cli-runtime-20260805'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Capture runner-provided GitHub CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh_bin="$(command -v gh)"
+          install -m 0755 "$gh_bin" "$RUNNER_TEMP/gh"
+          "$RUNNER_TEMP/gh" --version
+          sha256sum "$RUNNER_TEMP/gh" > "$RUNNER_TEMP/gh.sha256"
+      - name: Upload verified CLI bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gh-linux-amd64
+          path: |
+            ${{ runner.temp }}/gh
+            ${{ runner.temp }}/gh.sha256
+          retention-days: 1
+          if-no-files-found: error
